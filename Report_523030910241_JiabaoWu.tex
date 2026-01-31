@@ -1,0 +1,299 @@
+\documentclass{article}
+\usepackage{mydefault}
+
+\title{Reinforce Learning Final Project Report}
+\author{Jiabao Wu}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+This report presents the applications of reinforcement learning techniques to the Atari games and mujoco environments. 
+For Atari, we implemented the Dueling DQN, which is value-based. For mujoco, we implemented the PPO, which is policy-based.
+
+\section{Atari}
+\subsection{Introduction to Dueling DQN}
+Dueling DQN is an improvement over the traditional DQN architecture. Different from the original DQN, it seperate the estimation of 
+the state value function and the advantage function into two streams. As the figure below shows:
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.8\linewidth]{pics/structure_of_Dueling_DQN.png}
+    \caption{Structure of Dueling DQN.}
+\end{figure}
+
+After obtaining the feature value from three convolutional layers, the network splits into two streams: one for estimating the state value function $V(s)$ 
+and another for the advantage function $A(s, a)$. We combine these two streams to get the Q value $Q(s, a)$. In order to ensure that the Q value is unique, 
+we use the following equation to combine them:
+\[Q(s, a) = V(s) + \left( A(s, a) - \frac{1}{|\mathcal{A}|} \sum_{a'} A(s, a') \right)\]
+where $|\mathcal{A}|$ is the number of possible actions.
+
+\subsection{Implementation of Dueling DQN}
+\begin{itemize}
+    \item \textbf{Wrappers:} Since the original Atari environment has high-dimensional input and complex dynamics, we use several wrappers to preprocess the environment:
+    \begin{enumerate}
+        \item \textbf{AFK Reset:} Each time the environment is reset, the agent will be AFK(away from keyboard) for a random number of steps (between 1 and 20), introducing randomness in the starting state.
+        \item \textbf{Fire Start:} Some games need to "FIRE" to start. The wrapper will ensure that "FIRE" is taken at the beginning of each episode.
+        \item \textbf{One Life Reset:} For a game with multiple lives, the wrapper will set \texttt{done=True} when the agent loses a life, making each life an independent episode.
+        \item \textbf{Life Loss:} Each time the agent loses a life, make reward -1 and continue.
+        \item \textbf{Frame Stack:} Stack the last four frames to form the input state, providing temporal context to the agent. The shape of a single frame is $(84, 84, 1)$, and after stacking four frames, the input shape becomes $(84, 84, 4)$.
+        \item \textbf{Gray Scale and Resize:} Convert the RGB frames to grayscale and resize them to 84x84 pixels to reduce computational complexity.
+        \item \textbf{Reward Clipping:} Clip the rewards to the range [-1, 1] to stabilize training.
+    \end{enumerate}
+    
+    \item \textbf{Epsilon-Greedy:}
+    \begin{figure}[htbp]
+        \centering
+        \begin{minipage}{0.48\linewidth}
+            We implemented an exponential decay for $\epsilon$. The specific formula is: \[\epsilon=\epsilon_{min}+(\epsilon_{max}-\epsilon_{min})\cdot \exp(-i/30000)\] where i is the frame index, $\epsilon_{max}=1$ and $\epsilon_{min}=0.01$.
+        \end{minipage}
+        \hfill
+        \begin{minipage}{0.48\linewidth}
+            \centering
+            \includegraphics[width=\linewidth]{pics/epsilon-decay.png}
+        \end{minipage}
+    \end{figure}
+\end{itemize}
+
+\subsection{Results on Atari}
+Under the hyperparameters listed below, we trained a Dueling DQN agent.
+\begin{itemize}
+    \item Max Frame: 1million for \textbf{Pong-v5}, 500k for \textbf{Breakout-v5} and \textbf{Boxing-v5}
+    \item Learning Rate: $1e-3$
+    \item Discount Factor $\gamma$: $0.99$
+    \item Replay Buffer Capacity: $10000$
+    \item Batch Size: $32$
+    \item Target Network Update Frequency: $1000$ steps
+    \item Initial Exploration Steps: $10000$ steps
+\end{itemize}
+
+\newpage
+On "Pong-v5", the training curve is shown below:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{atari/result/Pong-v5/training_curves.png}
+    \caption{Training Curve on Pong-v5.}
+\end{figure}
+
+As illustrated in the figure, the reward experiences a significant surge between 300k and 400k frames, eventually trending toward convergence. The final reward stabilizes at approximately 13. 
+We also tested the trained agent, the recorded video can be found in \texttt{atari/result/Pong-v5}.
+
+On "Breakout-v5", the training curve is shown below:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{atari/result/Breakout-v5/training_curves.png}
+    \caption{Training Curve on Breakout-v5.}
+    \label{fig:curve of Breakout-v5}
+\end{figure}
+
+Compared with Pong-v5, the environment of Breakout-v5 is significantly more complex. Nevertheless, the training curve maintains a steady upward trend and demonstrates clear convergence. After 500k frames of training, the agent achieves a reward of approximately 13.
+The recorded video can be found in \texttt{atari/result/Breakout-v5}.
+
+On "Boxing-v5", the training curve is shown below:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{atari/result/Boxing-v5/training_curves.png}
+    \caption{Training Curve on Boxing-v5.}
+\end{figure}
+
+Since Boxing-v5 has a relatively complex environment, the curve shows a slow but steady upward trend. After 500k frames, the agent achieves a reward of about 40. Video is also recorded in \\\texttt{atari/result/Boxing-v5}. 
+
+Here is the table of rewards of top-10 tests on three environments:
+\begin{table}[H]
+    \centering
+    \caption{Rewards of top-10 tests on Atari}
+    \begin{tabular}{lccccccccccc}
+        \toprule
+        \toprule
+        \textbf{Index}  & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 &\textbf{Average}\\
+        \midrule
+        \textbf{Pong-v5} & 17.0 & 15.0 & 11.0 & 16.0 & 12.0 & 13.0 & 17.0 & 15.0 & 11.0 & 19.0 & \textbf{14.6}\\
+        \textbf{Breakout-v5} & 18.0 & 16.0 & 26.0 & 21.0 & 9.0 & 14.0 & 8.0 & 35.0 & 14.0 & 35.0 & \textbf{19.6}\\
+        \textbf{Boxing-v5} & 54.0 & 72.0 & 73.0 & 31.0 & 28.0 & 47.0 & 32.0 & 39.0 & 38.0 & 68.0 & \textbf{48.2}\\
+        \bottomrule
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+\subsection{Ablation Studies}
+\subsubsection{Learning Rate}
+As far as we know, low learning rate leads to slow convergence. What if it is too high? 
+To investigate the impact of high learning rate, we set it to $1e-2$ and train on Breakout-v5.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{atari/result/Analasis/lr on Breakout-v5.png}
+    \caption{Training Curve of Breakout-v5 with $lr=1e-2$.}
+\end{figure}
+
+As the figure shows, the training curve is nearly a flat line, indicating that the model with too-high learning rate does not learn anything. 
+This is because a high learning rate leads to too large parameter updates, resulting in divergence during training. 
+
+In fact, compared with $2e-4$ and $1e-2$, setting the learning rate to $1e-3$ is of great benefit to the training. It balance the speed and stability of convergence well.
+
+\subsubsection{Epsilon}
+In the origin implementation, we set the minimum epsilon to 0.01. What if we always keep some spirit of exploration? 
+We set the minimum epsilon to 0.3 and here is the result training curve on Breakout-v5.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{atari/result/Analasis/epsilon\_min on Breakout-v5.png}
+    \caption{Training Curve of Breakout-v5 with $\epsilon_{min}=0.3$.}    
+\end{figure}
+
+The figure shows that the curve is lower than the original one and converges to a pool reward around 5. 
+This is because a high minimum epsilon introduces too much randomness in action selection, so even in late training, 
+the agent still takes random actions 30\% of the time, wasting opportunities to exploit learned knowledge.
+
+\subsubsection{Capacity}
+The capacity of memory buffer influences the diversity of experience. We set it to 100k and train on Breakout-v5.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{atari/result/Analasis/capacity on Breakout-v5.png}
+    \caption{Training Curve of Breakout-v5 with capacity=100k.}
+\end{figure}
+
+Different from the curves above, this one is similar to the origin curve, with a steady upward trend and clear convergence. Moreover, the final reward is little higher than the original one, reaching about 15. 
+This is because a larget capacity provides more diverse experiences for training, improving the generalization ability of the model. This explains why there is a high reward in the historigam.
+
+\subsection{Analysis of Improvement}
+Compared with the original DQN, Dueling DQN greatly improves the performance on Atari games. We also implemented DQN to train on Breakout-v5 with the same hyperparameters. The training curve is shown below:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{atari/result/Analasis/DQN.png}
+    \caption{Training Curve of DQN on Breakout-v5.}
+\end{figure}
+
+Compared with the Figure \ref{fig:curve of Breakout-v5}, the Dueling DQN outperforms DQN. The average reward of DQN is about 10, while Dueling DQN achieves about 13. The reward curve of DQN is also lower, with more volatility, than Dueling DQN. 
+
+In fact, the superiority of Dueling DQN in Breakout-v5 can be attributed to its ability to learn the state-value function $V(s)$ independently. In Atari environments, the exact action taken may not matter in states where the ball is still far from the paddle. Dueling DQN captures this by estimating the value of being in such a 'safe' state, leading to faster and more robust learning compared with DQN.
+
+\subsection{Conclusion}
+In this section, we successfully implemented and evaluated Dueling DQN on Atari environments. 
+Experimental results demonstrate that the agent achieves solid performance even within a limited training frames. 
+Our ablation studies further reveal that learning rate, exploration rate ($\epsilon$), and replay buffer capacity are critical factors influencing training stability and final rewards.
+
+Furthermore, a direct comparison with original DQN highlights the superiority of the dueling architecture. 
+By decoupling state-value $V(s)$ and advantage $A(s, a)$, the model exhibits smoother convergence and higher sample efficiency, 
+confirming that the dual-stream approach is more effective for complex discrete-action Atari tasks.
+
+\section{Mujoco}
+\subsection{Introduction to PPO}
+Proximal Policy Optimization (PPO) is a prominent policy-based reinforcement learning algorithm designed to improve the stability and reliability of policy updates. 
+Unlike standard Policy Gradient methods that are sensitive to step sizes, PPO introduces a clipped surrogate objective to prevent excessively large policy updates. 
+The core architecture often follows an Actor-Critic framework, as shown in the figure below:
+
+PPO maintains two versions of the policy: the current policy $\pi_\theta$ and the old policy $\pi_{\theta_{old}}$ from which the data was sampled. The update is guided by the probability ratio $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{old}}(a_t|s_t)}$. To ensure stable convergence, PPO optimizes the following clipped objective function:
+\[L^{CLIP}(\theta) = \hat{\mathbb{E}}_t \left[ \min\left(r_t(\theta)\hat{A}_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t\right) \right]\]
+where $\hat{A}_t$ is the estimated advantage at time $t$, and $\epsilon$ is a hyperparameter (typically 0.1 or 0.2) that limits the change of the policy in a single update. This mechanism ensures that the agent learns conservatively, avoiding catastrophic performance collapses.
+
+\subsection{Implementation of PPO}
+To implement PPO, we firstly construct the Actor-Critic network architecture. The actor network outputs the mean and standard deviation of a Gaussian distribution for continuous action spaces, while the critic network estimates the state value function. 
+
+\begin{itemize}
+    \item \textbf{Normalization:} We normalize the observations to have zero mean and unit variance, which helps stabilize training.
+    \item \textbf{Advantage Estimation:} We use Generalized Advantage Estimation (GAE) to compute the advantage function, which balances bias and variance in the estimates.
+\end{itemize}
+
+\subsection{Results on Mujoco}
+Under the hyperparameters listed below, we trained a PPO agent.
+\begin{table}[H]
+    \centering
+    \caption{Hyperparameters for PPO on Mujoco}
+    \begin{tabular}{lccc}
+        \toprule
+        \toprule
+        \textbf{Hyperparameter} & \textbf{Hopper-v4} & \textbf{HalfCheetah-v4} & \textbf{Ant-v4}\\
+        \midrule
+        Max Episodes & 3000 & 2000 & 2000\\
+        Learning Rate & $1e-3$ & $3e-4$ & $3e-4$\\
+        Max Steps $\gamma$ & $2048$ & $2048$ & $2048$\\
+        GAE Parameter $\lambda$ & $0.98$ & $0.98$ & $0.98$\\
+        Clip Range $\epsilon$ & $0.1$ & $0.1$ & $0.1$\\
+        Batch Size & $64$  & $64$ & $64$\\
+        Update Epochs & $10$ & $10$ & $10$\\
+        Entropy Coefficient & $0.01$ & $0.001$ & $0.001$\\
+        \bottomrule
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+On "Hopper-v4", the training curve is shown below:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{mujoco/result/Hopper-v4/training_curve.png}
+    \caption{Training Curve on Hopper-v4.}
+\end{figure}
+
+As we can clearly see from the graph, the reward shows a rapid increase in the initial training phase, followed by a gradual convergence. The final reward stabilizes at around 3000. 
+Test videos can be found in \texttt{mujoco/result/Hopper-v4}.
+
+On "HalfCheetah-v4", the training curve is shown below:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{mujoco/result/HalfCheetah-v4/training_curve.png}
+    \caption{Training Curve on HalfCheetah-v4.}
+\end{figure}
+
+Since the environment is more complex, we set the learning rate to $3e-4$ to ensure stabler training and set the entropy coefficient to $0.001$ to disencourage over-exploration. Test videos can be found in \texttt{mujoco/result/HalfCheetah-v4}.
+
+On "Ant-v4", the training curve is shown below:
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{mujoco/result/Ant-v4/training_curve.png}
+    \caption{Training Curve on Ant-v4.}
+\end{figure}
+
+The environment is the most complex among the three. The curve is also relatively volatile, but it still shows an upward trend. The curve seems to converge to about 800 after 2000 episodes. Test videos can be found in \texttt{mujoco/result/Ant-v4}.
+
+The table below shows the rewards of top-5 tests on three environments:
+\begin{table}[H]
+    \centering
+    \caption{Rewards of top-5 tests on Mujoco}
+    \begin{tabular}{lcccccc}
+        \toprule
+        \toprule
+        \textbf{Index}  & 1 & 2 & 3 & 4 & 5 &\textbf{Average}\\
+        \midrule
+        \textbf{Hopper-v4} & 3252.00 & 3265.31 & 3254.47 & 3259.20 & 3252.22 & \textbf{3256.64}\\
+        \textbf{HalfCheetah-v4} & 3668.66 & 3611.04 & 3614.78 & 3540.17 & 3634.25 & \textbf{3613.78}\\
+        \textbf{Ant-v4} & 856.25 & 675.16 & 1056.97 & 1007.50 & 1135.20 & \textbf{946.21}\\
+        \bottomrule
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Ablation Study}
+In this section, we try to analyse the impact of learning rate and entropy coefficient on the training performance of PPO. Since Hopper-v4 is relatively a simple environment, we conduct experiments on it by varying these hyperparameters while keeping others constant.
+
+\subsubsection{Learning Rate}
+This time we set lr to $1e-2$ and train. 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{mujoco/result/Analasis/Hopper-v4-lr.png}
+    \caption{Training Curve of Hopper-v4 with $lr=1e-2$.}
+\end{figure}
+
+To our suprise, this curve shows a rapid increase in reward, reaching about 1000 within 2000 episodes. However, after that, the reward has high variance and does not reach the expected reward fianlly. 
+This indicates that too high learning rate may lead to instablity during training, causing unexpected performance drops.
+
+\subsubsection{Entropy Coefficient}
+In PPO, the entropy coefficient controls the exploration-exploitation trade-off. A higher entropy coefficient encourages more exploration by penalizing certainty in action selection. We set it to 0.5 and train on Hopper-v4.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{mujoco/result/Analasis/Hopper-v4-ent_coef.png}
+    \caption{Training Curve of Hopper-v4 with $ent\_coef=0.5$.}
+\end{figure}
+
+The result, in our expectation, shows that the training is failed. The reward climbs up at the beginning, but soon drops to negative and stays there. This is because a high entropy coefficient leads to excessive exploration, preventing the agent from exploiting learned policies effectively.
+
+\subsection{Conclusion}
+In this section, we successfully implemented and evaluated PPO on Mujoco environments. 
+Experimental results demonstrate that the agent achieves solid performance even within a limited training episodes. 
+Our ablation studies further reveal that learning rate and clip range are critical factors influencing training stability and final rewards.
+
+Due to limited time, we did not conduct a comprehensive ablation study on all hyperparameters. The implemented network of PPO still requires futher tuning to avoid high variance during training.
+\end{document}
